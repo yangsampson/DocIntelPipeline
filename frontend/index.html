@@ -212,7 +212,21 @@
 
                 const data = await response.json();
 
+                // Inside your existing uploadFile function, after "const data = await response.json();"
+
                 if (data.folder_id) {
+                    // 1. Get existing history from local storage or start a new list
+                    let history = JSON.parse(localStorage.getItem('myUploads')) || [];
+                    
+                    // 2. Add the new folder_id to the list
+                    if (!history.includes(data.folder_id)) {
+                        history.push(data.folder_id);
+                    }
+                    
+                    // 3. Save the updated list back to the browser
+                    localStorage.setItem('myUploads', JSON.stringify(history));
+
+                    // Existing code...
                     downloadLink.href = `/download/${data.folder_id}`;
                     downloadContainer.classList.remove("hidden");
                 }
