@@ -11,22 +11,24 @@
         .nav-btn:hover { background: rgba(255, 255, 255, 0.2); }
         
         .container { max-width: 1100px; margin: 30px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        
-        .stats-bar { margin-bottom: 20px; background: #ebf8ff; padding: 12px; border-radius: 8px; border-left: 4px solid #4299e1; font-weight: bold; }
+        .stats-bar { margin-bottom: 20px; background: #ebf8ff; padding: 15px; border-radius: 8px; border-left: 4px solid #4299e1; display: flex; justify-content: space-between; align-items: center; }
         
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th { background: #f8fafc; padding: 15px; text-align: left; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; font-size: 12px; }
+        th { background: #f8fafc; padding: 15px; text-align: left; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; }
         td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
         
-        .preview-img { max-width: 120px; max-height: 60px; border-radius: 4px; border: 1px solid #e2e8f0; display: block; margin-bottom: 5px; }
-        .action-btn { display: inline-block; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; color: white; margin-right: 5px; }
-        .btn-zip { background: #48bb78; } 
-        .btn-header { background: #4299e1; } 
-        .btn-sig { background: #ed8936; }
-        .btn-del { background: #f56565; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .preview-img { max-width: 120px; max-height: 60px; border-radius: 4px; border: 1px solid #e2e8f0; display: block; margin-bottom: 5px; background: #fff; }
+        .action-btn { display: inline-block; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; color: white; margin-right: 5px; border: none; cursor: pointer; }
         
-        .empty-state { text-align: center; padding: 40px; color: #718096; }
-        #loader { text-align: center; padding: 20px; font-style: italic; }
+        .btn-zip { background: #48bb78; } /* Green */
+        .btn-zip:hover { background: #38a169; }
+        .btn-header { background: #4299e1; } /* Blue */
+        .btn-sig { background: #ed8936; } /* Orange */
+        .btn-del { background: #f56565; } /* Red */
+        .btn-clear { background: #718096; color: white; border: none; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        
+        .checkbox-col { width: 40px; }
+        input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
     </style>
 </head>
 <body>
@@ -39,25 +41,31 @@
     <div class="container">
         <h2>📂 My Processed Records</h2>
         
-        <div id="stats" class="stats-bar">
-            Detecting your private records...
+        <div class="stats-bar">
+            <span id="stats">Loading records...</span>
+            <div style="display: flex; gap: 10px;">
+                <button class="action-btn btn-zip" id="bulkDownloadBtn" onclick="downloadSelected()" style="font-size: 13px; padding: 8px 16px;">📥 Download Selected</button>
+                <button class="btn-clear" onclick="clearLocalHistory()">🧹 Clear History</button>
+            </div>
         </div>
 
         <table>
             <thead>
                 <tr>
+                    <th class="checkbox-col"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
                     <th>Record Name</th>
-                    <th>Download</th>
-                    <th>Header</th>
-                    <th>Signature</th>
+                    <th>Full Package</th>
+                    <th>Header Image</th>
+                    <th>Signature Image</th>
                     <th>Action</th>
                 </tr>
             </thead>
-            <tbody id="record-body">
-                </tbody>
+            <tbody id="record-body"></tbody>
         </table>
         
-        <div id="loader">Scanning server for your files...</div>
+        <div id="loader" style="text-align:center; padding: 40px;">
+            <p style="font-style: italic; color: #718096;">Scanning for your files...</p>
+        </div>
     </div>
 
     <script>
@@ -67,85 +75,123 @@
             const loader = document.getElementById('loader');
 
             try {
-                // 1. Get the list of IDs from THIS user's browser
+                // 1. Get browser history
                 const myUploads = JSON.parse(localStorage.getItem('myUploads')) || [];
 
-                // 2. Fetch ALL records from the server (using a high limit to bypass pagination issues)
-                // This ensures we see our files even if they are 'deep' in the server's storage
-                const response = await fetch(`/api/records?page=1&limit=9999`);
+                // 2. Fetch all from server
+                const response = await fetch(`/api/records`);
                 const data = await response.json();
                 
                 tbody.innerHTML = "";
                 loader.style.display = 'none';
 
-                // 3. Filter: Only show folders that belong to this browser's session
+                // 3. Filter to only show what belongs to this browser
                 const filteredRecords = data.records.filter(folder => myUploads.includes(folder));
-
-                // 4. Update the Stats bar
-                stats.innerText = `Found ${filteredRecords.length} records associated with this browser.`;
+                stats.innerText = `Showing ${filteredRecords.length} private records.`;
 
                 if (filteredRecords.length === 0) {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="5" class="empty-state">
-                                <h3>No Records Found</h3>
-                                <p>You haven't uploaded any documents in this browser yet, or your history was cleared.</p>
-                                <a href="/" style="color: #4299e1;">Go to Home to upload a file</a>
-                            </td>
-                        </tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:60px; color:#718096;">
+                        <h3>No Records Found</h3>
+                        <p>Upload files on the Home page to see them here.</p>
+                    </td></tr>`;
                     return;
                 }
 
-                // 5. Render only the user's specific records
+                // 4. Render rows
                 filteredRecords.forEach(folder => {
                     const row = document.createElement('tr');
                     row.innerHTML = `
+                        <td><input type="checkbox" class="row-check" value="${folder}"></td>
                         <td><strong>${folder}</strong></td>
-                        <td><a href="/download/${folder}" class="action-btn btn-zip">📦 ZIP</a></td>
+                        <td><a href="/download/${folder}" class="action-btn btn-zip" download>📦 ZIP</a></td>
                         <td>
-                            <img src="/download/header/${folder}" class="preview-img" onerror="this.src='https://via.placeholder.com/120x60?text=No+Image'">
-                            <a href="/download/header/${folder}" class="action-btn btn-header">PNG</a>
+                            <img src="/download/header/${folder}" class="preview-img" onerror="this.src='https://via.placeholder.com/120x60?text=No+Header'">
+                            <a href="/download/header/${folder}" class="action-btn btn-header" download="${folder}_header.png">Download PNG</a>
                         </td>
                         <td>
-                            <img src="/download/signature/${folder}" class="preview-img" onerror="this.src='https://via.placeholder.com/120x60?text=No+Image'">
-                            <a href="/download/signature/${folder}" class="action-btn btn-sig">PNG</a>
+                            <img src="/download/signature/${folder}" class="preview-img" onerror="this.src='https://via.placeholder.com/120x60?text=No+Sig'">
+                            <a href="/download/signature/${folder}" class="action-btn btn-sig" download="${folder}_signature.png">Download PNG</a>
                         </td>
-                        <td><button class="btn-del" onclick="deleteRecord('${folder}')">🗑️ Delete</button></td>
+                        <td><button class="action-btn btn-del" onclick="deleteRecord('${folder}')">🗑️ Delete</button></td>
                     `;
                     tbody.appendChild(row);
                 });
-
             } catch (err) {
-                console.error("Fetch Error:", err);
-                loader.innerHTML = "<b style='color:red;'>❌ Error connecting to the Docker server.</b>";
-                stats.innerText = "Connection failed.";
+                loader.innerHTML = "<b style='color:red;'>❌ Connection Error. Ensure your backend is running.</b>";
+            }
+        }
+
+        // Toggle all checkboxes
+        function toggleAll(source) {
+            const checkboxes = document.querySelectorAll('.row-check');
+            checkboxes.forEach(cb => cb.checked = source.checked);
+        }
+
+        // Bulk Download Logic
+        async function downloadSelected() {
+            const selected = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+
+            if (selected.length === 0) {
+                alert("Please select at least one record to download.");
+                return;
+            }
+
+            const btn = document.getElementById('bulkDownloadBtn');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Zipping...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/download-selected', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folders: selected })
+                });
+
+                if (!response.ok) throw new Error("Server failed to generate zip.");
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "ProcessedRecords.zip";
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
         }
 
         async function deleteRecord(name) {
-            if (!confirm(`Are you sure you want to delete ${name} from the server?`)) return;
-            
+            if (!confirm(`Permanently delete ${name} from the server?`)) return;
             try {
-                // Delete from the Docker server
                 await fetch('/api/delete', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ folders: [name] })
                 });
 
-                // Remove from THIS browser's list
+                // Update local storage
                 let history = JSON.parse(localStorage.getItem('myUploads')) || [];
                 history = history.filter(id => id !== name);
                 localStorage.setItem('myUploads', JSON.stringify(history));
 
-                // Refresh the table
                 loadRecords();
-            } catch (err) {
-                alert("Failed to delete record from server.");
+            } catch (err) { alert("Delete failed."); }
+        }
+
+        function clearLocalHistory() {
+            if (confirm("Clear your browser's view? (Files will remain on the server but disappear from this list).")) {
+                localStorage.removeItem('myUploads');
+                loadRecords();
             }
         }
 
-        // Initialize on page load
+        // Auto-load on page entry
         loadRecords();
     </script>
 </body>
