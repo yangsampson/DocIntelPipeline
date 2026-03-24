@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
@@ -17,13 +18,12 @@ OUTPUT_DIR = os.path.join(BASE_DIR, os.getenv("OUTPUT_DIR", "storage/output"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Import logic files
+# Logic imports
 from services.converter import convert_to_png
 from services.processor import extract_elements
 
 app = FastAPI()
 
-# Pydantic model for Bulk Delete
 class DeleteRequest(BaseModel):
     folders: List[str]
 
@@ -37,12 +37,15 @@ async def serve_index():
 async def serve_record():
     return FileResponse(os.path.join(BASE_DIR, "frontend", "record.html"))
 
-# --- UPLOAD & ZIP DOWNLOAD ---
+# --- UPLOAD ---
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     safe_filename = file.filename.replace(" ", "_")
+    # Strip extension for the ID (e.g., 'test.pdf' -> 'test')
+    clean_id = os.path.splitext(safe_filename)[0]
     input_path = os.path.join(UPLOAD_DIR, safe_filename)
+    
     try:
         with open(input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -52,72 +55,101 @@ async def upload_document(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="Conversion failed.")
             
         result_data = extract_elements(png_path)
-        result_data["folder_id"] = safe_filename
+        # Return the clean ID to be saved in LocalStorage
+        result_data["folder_id"] = clean_id
         return result_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- DOWNLOADS ---
+
 @app.get("/download/{filename}")
 async def download_output_folder(filename: str, background_tasks: BackgroundTasks):
-    base_name = os.path.splitext(filename)[0]
-    folder_path = os.path.join(OUTPUT_DIR, base_name)
+    folder_path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(folder_path):
-        raise HTTPException(status_code=404, detail="Source folder not found.")
+        raise HTTPException(status_code=404, detail="Folder not found.")
     
-    zip_base_path = os.path.join(OUTPUT_DIR, f"{base_name}_temp")
+    zip_base_path = os.path.join(OUTPUT_DIR, f"{filename}_temp")
     shutil.make_archive(zip_base_path, 'zip', folder_path)
     final_zip_path = f"{zip_base_path}.zip"
     
     background_tasks.add_task(os.remove, final_zip_path)
-    return FileResponse(path=final_zip_path, filename=f"{base_name}_professional.zip", media_type="application/zip")
-
-# --- INDIVIDUAL ASSET DOWNLOADS (PREVIEWS) ---
+    return FileResponse(path=final_zip_path, filename=f"{filename}.zip", media_type="application/zip")
 
 @app.get("/download/header/{base_name}")
 async def download_header(base_name: str):
-    clean_name = os.path.splitext(base_name)[0]
-    file_path = os.path.join(OUTPUT_DIR, clean_name, f"{clean_name}_header.png")
+    # Ensure we use base_name to find the file
+    clean_id = os.path.splitext(base_name)[0]
+    file_path = os.path.join(OUTPUT_DIR, clean_id, f"{clean_id}_header.png")
+    
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Header not found.")
-    return FileResponse(path=file_path, filename=f"{clean_name}_header.png", media_type="image/png")
+        raise HTTPException(status_code=404)
+    
+    # application/octet-stream forces a download instead of a preview
+    return FileResponse(path=file_path, filename=f"{clean_id}_header.png", media_type="application/octet-stream")
 
 @app.get("/download/signature/{base_name}")
 async def download_signature(base_name: str):
-    clean_name = os.path.splitext(base_name)[0]
-    file_path = os.path.join(OUTPUT_DIR, clean_name, f"{clean_name}_signature.png")
+    clean_id = os.path.splitext(base_name)[0]
+    file_path = os.path.join(OUTPUT_DIR, clean_id, f"{clean_id}_signature.png")
+    
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Signature not found.")
-    return FileResponse(path=file_path, filename=f"{clean_name}_signature.png", media_type="image/png")
+        raise HTTPException(status_code=404)
+        
+    return FileResponse(path=file_path, filename=f"{clean_id}_signature.png", media_type="application/octet-stream")
 
-# --- RECORD MANAGEMENT (API) ---
+# --- BULK RECORD MANAGEMENT ---
+
+@app.post("/api/download-selected")
+async def download_selected(data: DeleteRequest, background_tasks: BackgroundTasks):
+    if not data.folders:
+        raise HTTPException(status_code=400, detail="No folders selected")
+
+    # Create a temp workspace
+    tmp_parent = tempfile.mkdtemp()
+    internal_folder_name = "Processed Records"
+    export_path = os.path.join(tmp_parent, internal_folder_name)
+    os.makedirs(export_path)
+
+    try:
+        for folder_name in data.folders:
+            # Prevent directory traversal
+            safe_name = os.path.basename(folder_name)
+            src = os.path.join(OUTPUT_DIR, safe_name)
+            if os.path.exists(src):
+                # Copy selected folders into the "Processed Records" directory
+                shutil.copytree(src, os.path.join(export_path, safe_name))
+
+        # Zip it up: Archive everything in tmp_parent/Processed Records
+        zip_base = os.path.join(tmp_parent, "ProcessedRecords")
+        shutil.make_archive(zip_base, 'zip', tmp_parent, internal_folder_name)
+        final_zip = f"{zip_base}.zip"
+
+        background_tasks.add_task(shutil.rmtree, tmp_parent)
+        return FileResponse(path=final_zip, filename="ProcessedRecords.zip", media_type="application/zip")
+    except Exception as e:
+        if os.path.exists(tmp_parent):
+            shutil.rmtree(tmp_parent)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/records")
-async def get_records_data(page: int = 1, limit: int = 10):
-    if not os.path.exists(OUTPUT_DIR): return {"records": [], "total": 0}
+async def get_records_data():
+    if not os.path.exists(OUTPUT_DIR): return {"records": []}
+    # Return all folder names so frontend can filter
     all_folders = [f for f in os.listdir(OUTPUT_DIR) if os.path.isdir(os.path.join(OUTPUT_DIR, f))]
     all_folders.sort(key=lambda x: os.path.getmtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
-    
-    total = len(all_folders)
-    start = (page - 1) * limit
-    paginated_folders = all_folders[start:start + limit]
-    return {"records": paginated_folders, "total": total}
+    return {"records": all_folders}
 
 @app.post("/api/delete")
 async def delete_records(data: DeleteRequest):
-    """Handles both single and bulk deletion of record folders."""
-    deleted_items = []
+    deleted = []
     for folder_name in data.folders:
-        # Clean the name to prevent directory traversal
-        clean_name = os.path.basename(folder_name)
-        target_path = os.path.join(OUTPUT_DIR, clean_name)
-        
-        if os.path.exists(target_path):
-            shutil.rmtree(target_path)
-            deleted_items.append(clean_name)
-            
-    return {"message": "Success", "deleted": deleted_items}
+        safe_name = os.path.basename(folder_name)
+        target = os.path.join(OUTPUT_DIR, safe_name)
+        if os.path.exists(target):
+            shutil.rmtree(target)
+            deleted.append(safe_name)
+    return {"status": "success", "deleted": deleted}
 
 if __name__ == "__main__":
-    PORT = int(os.getenv("PORT", 8000))
-    DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=DEBUG)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
