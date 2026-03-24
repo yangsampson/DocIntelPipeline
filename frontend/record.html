@@ -5,24 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document Records</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; text-align: center; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; color: #2d3748; }
         nav { background: #2d3748; padding: 15px 30px; display: flex; justify-content: flex-end; gap: 20px; }
         .nav-btn { color: white; text-decoration: none; font-weight: bold; padding: 8px 16px; border-radius: 6px; }
+        
         .container { max-width: 1100px; margin: 30px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         
-        /* Pagination UI */
         .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: #edf2f7; padding: 15px; border-radius: 8px; }
-        .pagination-btns { display: flex; gap: 10px; align-items: center; }
-        button { padding: 8px 15px; cursor: pointer; border-radius: 4px; border: 1px solid #cbd5e0; background: white; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th { background: #edf2f7; padding: 15px; text-align: left; border-bottom: 2px solid #cbd5e0; }
-        td { padding: 10px 15px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: middle; }
         
-        .preview-img { max-width: 150px; max-height: 80px; border-radius: 4px; border: 1px solid #ddd; display: block; margin-bottom: 5px; background: #f9f9f9; }
-        .action-btn { display: inline-block; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; color: white; }
-        .btn-zip { background: #28a745; } .btn-header { background: #4299e1; } .btn-sig { background: #ed8936; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #f8fafc; padding: 15px; text-align: left; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; font-size: 12px; }
+        td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+        
+        .preview-img { max-width: 120px; max-height: 60px; border-radius: 4px; border: 1px solid #e2e8f0; display: block; margin-bottom: 5px; }
+        .action-btn { display: inline-block; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; color: white; margin-right: 5px; }
+        .btn-zip { background: #48bb78; } 
+        .btn-header { background: #4299e1; } 
+        .btn-sig { background: #ed8936; }
+        .btn-del { background: #f56565; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -45,7 +45,7 @@
             </div>
             <div class="pagination-btns">
                 <button id="prevBtn" onclick="changePage(-1)">Previous</button>
-                <span id="pageIndicator">Page 1</span>
+                <span id="pageIndicator" style="margin: 0 10px;">Page 1</span>
                 <button id="nextBtn" onclick="changePage(1)">Next</button>
             </div>
         </div>
@@ -53,10 +53,11 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 20%;">Name</th>
-                    <th style="width: 15%;">All Assets</th>
-                    <th style="width: 32%;">Header Preview</th>
-                    <th style="width: 32%;">Signature Preview</th>
+                    <th>Record Name</th>
+                    <th>Download</th>
+                    <th>Header</th>
+                    <th>Signature</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody id="record-body"></tbody>
@@ -74,40 +75,45 @@
                 const response = await fetch(`/api/records?page=${currentPage}&limit=${limit}`);
                 const data = await response.json();
                 const tbody = document.getElementById('record-body');
-                
                 tbody.innerHTML = "";
                 totalRecords = data.total;
                 document.getElementById('loader').style.display = 'none';
-
-                if (data.records.length === 0) {
-                    tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>No records found.</td></tr>";
-                }
 
                 data.records.forEach(folder => {
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td><strong>${folder}</strong></td>
-                        <td><a href="/download/${folder}" class="action-btn btn-zip">📦 Download Zip</a></td>
+                        <td><a href="/download/${folder}" class="action-btn btn-zip">📦 ZIP</a></td>
                         <td>
-                            <img src="/download/header/${folder}" class="preview-img" alt="No Header">
-                            <a href="/download/header/${folder}" class="action-btn btn-header">💾 PNG</a>
+                            <img src="/download/header/${folder}" class="preview-img">
+                            <a href="/download/header/${folder}" class="action-btn btn-header">PNG</a>
                         </td>
                         <td>
-                            <img src="/download/signature/${folder}" class="preview-img" alt="No Sig">
-                            <a href="/download/signature/${folder}" class="action-btn btn-sig">💾 PNG</a>
+                            <img src="/download/signature/${folder}" class="preview-img">
+                            <a href="/download/signature/${folder}" class="action-btn btn-sig">PNG</a>
                         </td>
+                        <td><button class="btn-del" onclick="deleteRecord('${folder}')">🗑️ Delete</button></td>
                     `;
                     tbody.appendChild(row);
                 });
 
-                // Update UI state
                 document.getElementById('pageIndicator').innerText = `Page ${currentPage}`;
                 document.getElementById('prevBtn').disabled = currentPage === 1;
                 document.getElementById('nextBtn').disabled = (currentPage * limit) >= totalRecords;
-
             } catch (err) {
                 document.getElementById('loader').innerText = "❌ Error connecting to server.";
             }
+        }
+
+        async function deleteRecord(name) {
+            if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+            
+            await fetch('/api/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ folders: [name] })
+            });
+            loadRecords();
         }
 
         function changePage(step) {
