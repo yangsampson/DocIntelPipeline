@@ -1,0 +1,22 @@
+name: Docker CI with Pytest
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        # We tag it as 'myapp-test' locally to use in the next step
+        run: docker build -t myapp-test .
+
+      - name: Run Pytest inside Docker
+        # We run the container and override the CMD to run pytest instead of uvicorn
+        run: docker run --rm myapp-test pytest
