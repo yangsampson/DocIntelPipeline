@@ -1,4 +1,5 @@
-# DocIntel Pipeline
+# DocIntel AI Pipeline
+
 
 Live Application: https://documentextractor-mbx5.onrender.com/
 
